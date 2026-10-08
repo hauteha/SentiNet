@@ -1,112 +1,107 @@
-# Docker — M2 Infrastructure
+# SentiNet — Stack Docker
 
-Travaux de conteneurisation du M2 Infrastructure. Ce dépôt regroupe les stacks
-Docker du projet **NetSentinel**, un outil de détection réseau assistée par
-machine learning (projet YDays — Ynov Campus Toulouse).
+Conteneurisation du projet **NetSentinel**, un outil de détection réseau assistée
+par machine learning (projet YDays — Ynov Campus Toulouse). Le dossier s'appelle
+`SentiNet`, le produit *NetSentinel* : c'est le même projet.
 
-## Contenu
+## Services
 
-| Chemin | Rôle |
-| --- | --- |
-| `SentiNet/` | Stack du site vitrine NetSentinel + instance Matomo d'analytics |
-| `SentiNet/dockerfile` | Image nginx autonome avec le site embarqué |
-| `SentiNet/docker-compose.yaml` | Orchestration des 3 services (site, Matomo, MariaDB) |
-| `SentiNet/nginx/default.conf` | Configuration nginx durcie (CSP, en-têtes de sécurité, gzip, cache) |
-| `SentiNet/site/index.html` | Page vitrine statique (autonome, sans build) |
+Toutes les images sont construites depuis l'unique `dockerfile` multi-stage.
+Seul le reverse proxy expose un port sur l'hôte.
 
-## Stack SentiNet
-
-Trois services définis dans `docker-compose.yaml` :
-
-| Service | Image | Port hôte | Rôle |
+| Service | Image de base | URL | Rôle |
 | --- | --- | --- | --- |
-| `web` | `nginx:1.27-alpine` | `${HTTP_PORT:-8080}` | Sert le site vitrine statique |
-| `app` | `matomo:5-apache` | `${MATOMO_PORT:-8081}` | Analytics auto-hébergé |
-| `db` | `mariadb:lts` | — (interne) | Base de données de Matomo |
+| `nginx-proxy` | `sysadminmichael/sentinet:nginx-1.27-alpine-slim` | port 80 | Reverse proxy par nom de domaine |
+| `web` | `sysadminmichael/sentinet:nginx-1.27-alpine-slim` | <http://netsentinel.localhost> | Site vitrine statique |
+| `app` | `sysadminmichael/sentinet:matomo-5-apache` | <http://matomo.localhost> | Analytics auto-hébergé |
+| `db` | `sysadminmichael/sentinet:db-12.3.3` | interne | Base de Matomo |
+| `wordpress` | `wordpress:6-apache` | <http://wp.localhost> | WordPress |
+| `wp-db` | `sysadminmichael/sentinet:db-12.3.3` | interne | Base de WordPress |
 
-Le démarrage est ordonné : `app` attend que `db` soit déclaré *healthy*
-(`depends_on` + `condition: service_healthy`), et non simplement démarré.
+Réseaux :
+
+- `front` relie le proxy au site, à Matomo et à WordPress.
+- `back` est interne (pas d'accès Internet) et relie les applications à leurs bases.
+
+`app` et `wordpress` attendent que leur base soit *healthy* avant de démarrer.
 
 ## Démarrage
 
-Prérequis : Docker Desktop (ou Docker Engine) avec le plugin Compose.
+Prérequis : Docker Engine (ou Docker Desktop) avec le plugin Compose, le
+port 80 libre sur la machine, et un accès au registre privé `sysadminmichael`.
 
 ```bash
 cd SentiNet
-cp .env.example .env     # puis renseigner des mots de passe forts
-docker compose up -d
+docker login                  # compte ayant accès au registre privé
+cp .env.example .env          # puis remplacer chaque "changeme"
+docker compose up -d --build
+docker compose ps             # attendre que tout soit "healthy" / "running"
 ```
 
-- Site vitrine → <http://localhost:8080>
-- Matomo (installation guidée au 1er lancement) → <http://localhost:8081>
+Les noms `*.localhost` pointent automatiquement vers 127.0.0.1 dans Chrome,
+Firefox et curl. Sinon, ajouter dans `/etc/hosts` :
 
-Vérifier l'état des services et la sonde de santé :
+```text
+127.0.0.1 netsentinel.localhost matomo.localhost wp.localhost
+```
+
+Au premier lancement, Matomo et WordPress affichent un assistant d'installation.
+Pour Matomo, déclarer le site `http://netsentinel.localhost` : il recevra l'ID 1,
+celui utilisé par le traceur de `site/index.html`.
+
+Vérifier la sonde de santé du site :
 
 ```bash
-docker compose ps
-curl http://localhost:8080/healthz    # doit répondre "ok"
+curl http://netsentinel.localhost/healthz    # doit répondre "ok"
 ```
 
-Arrêter la stack (`-v` supprime aussi les volumes de données) :
+Arrêter la stack :
 
 ```bash
 docker compose down        # conserve les données
-docker compose down -v     # réinitialise tout
+docker compose down -v     # supprime aussi les volumes (réinitialise tout)
 ```
-
-## Image autonome
-
-`dockerfile` produit une image nginx avec le site **copié dedans** — utile pour
-un déploiement où aucun volume n'est monté :
-
-```bash
-cd SentiNet
-docker build -f dockerfile -t netsentinel-site:v1 .
-docker run --rm -p 8080:80 netsentinel-site:v1
-```
-
-À noter : le service `web` du Compose n'utilise pas cette image. Il monte
-`./site` et `./nginx/default.conf` en lecture seule depuis l'hôte, ce qui permet
-de modifier la page sans reconstruire. Les deux approches coexistent
-volontairement — bind mount pour le développement, image buildée pour la
-production.
-
-## Durcissement appliqué
-
-Le service `web` ne tourne pas avec les réglages par défaut :
-
-- `read_only: true` — système de fichiers du conteneur en lecture seule, avec
-  des `tmpfs` sur `/var/cache/nginx`, `/var/run` et `/tmp` pour les écritures
-  dont nginx a réellement besoin
-- `cap_drop: ALL` puis réintroduction des seules capacités nécessaires
-  (`CHOWN`, `SETGID`, `SETUID`, `NET_BIND_SERVICE`)
-- `no-new-privileges:true` — interdit l'escalade de privilèges
-- Montages en `:ro` pour le site et la configuration
-
-Côté nginx (`nginx/default.conf`) : `server_tokens off`, `X-Frame-Options:
-DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy` et une
-Content-Security-Policy restreinte aux seules origines Google Fonts utilisées
-par la page.
 
 ## Configuration
 
-Les secrets ne sont pas versionnés. `SentiNet/.env.example` documente les
-variables attendues ; `.env` est ignoré par git.
+Les secrets ne sont pas versionnés : `.env` est ignoré par git et
+`.env.example` documente les variables. Compose refuse de démarrer si un mot de
+passe manque.
 
 | Variable | Obligatoire | Défaut | Rôle |
 | --- | --- | --- | --- |
-| `DB_PASSWORD` | oui | — | Mot de passe de l'utilisateur `matomo` |
-| `DB_ROOT_PASSWORD` | oui | — | Mot de passe root de MariaDB |
-| `HTTP_PORT` | non | `8080` | Port hôte du site vitrine |
-| `MATOMO_PORT` | non | `8081` | Port hôte de Matomo |
+| `DB_PASSWORD` | oui | — | Utilisateur `matomo` de MariaDB |
+| `DB_ROOT_PASSWORD` | oui | — | Root de la base Matomo |
+| `WP_DB_PASSWORD` | oui | — | Utilisateur `wordpress` de MariaDB |
+| `WP_DB_ROOT_PASSWORD` | oui | — | Root de la base WordPress |
+| `TAG` | non | `1.0` | Tag des images construites |
 
 Générer un mot de passe solide :
 
 ```bash
-openssl rand -base64 32
+openssl rand -base64 24
 ```
 
-## Notes
+Les images de base viennent du registre privé `sysadminmichael/sentinet`. Ce
+sont des arguments de build, donc on peut les remplacer ponctuellement, par
+exemple par les images officielles si le registre est inaccessible :
 
-Le dossier s'appelle `SentiNet` tandis que le produit est nommé *NetSentinel*
-dans la page web. Les deux désignent le même projet.
+```bash
+docker compose build --build-arg MARIADB_IMAGE=mariadb:lts
+```
+
+## Durcissement
+
+Service `web` :
+
+- `read_only: true`, avec des `tmpfs` pour `/var/cache/nginx`, `/var/run` et `/tmp`.
+- `no-new-privileges:true` interdit l'escalade de privilèges.
+- Healthcheck sur `/healthz`.
+
+Configuration nginx (`nginx/default.conf`) : `server_tokens off`,
+`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`,
+et une Content-Security-Policy limitée à Google Fonts et à `matomo.localhost`.
+
+Proxy (`proxy/proxy.conf`) : toute requête avec un nom de domaine inconnu est
+coupée (code 444). Les noms des conteneurs sont résolus à chaque requête, donc le
+proxy démarre même si un service n'est pas encore prêt.

@@ -6,8 +6,8 @@ services:
     volumes:
       - db:/var/lib/mysql:Z
     environment:
-      - MARIADB_PASSWORD=${DB_PASSWORD}
-      - MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      - MARIADB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD manquant dans .env}
+      - MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD:?DB_ROOT_PASSWORD manquant dans .env}
     networks: [back]
 
   app:
@@ -20,7 +20,7 @@ services:
     volumes:
       - matomo:/var/www/html:z
     environment:
-      - MATOMO_DATABASE_PASSWORD=${DB_PASSWORD}
+      - MATOMO_DATABASE_PASSWORD=${DB_PASSWORD:?DB_PASSWORD manquant dans .env}
     networks: [front, back]
 
   wp-db:
@@ -30,8 +30,8 @@ services:
     volumes:
       - wp-db:/var/lib/mysql
     environment:
-      - MARIADB_PASSWORD=${WP_DB_PASSWORD}
-      - MARIADB_ROOT_PASSWORD=${WP_DB_ROOT_PASSWORD}
+      - MARIADB_PASSWORD=${WP_DB_PASSWORD:?WP_DB_PASSWORD manquant dans .env}
+      - MARIADB_ROOT_PASSWORD=${WP_DB_ROOT_PASSWORD:?WP_DB_ROOT_PASSWORD manquant dans .env}
     networks: [back]
 
   wordpress:
@@ -44,7 +44,7 @@ services:
     volumes:
       - wp-data:/var/www/html
     environment:
-      - WORDPRESS_DB_PASSWORD=${WP_DB_PASSWORD}
+      - WORDPRESS_DB_PASSWORD=${WP_DB_PASSWORD:?WP_DB_PASSWORD manquant dans .env}
     networks: [front, back]
 
   web:
@@ -59,7 +59,7 @@ services:
       - /tmp
     security_opt:
       - no-new-privileges:true
-    networks: [web_net]
+    networks: [front]
 
   nginx-proxy:
     build: { context: ., target: proxy }
@@ -74,7 +74,6 @@ networks:
   front:
   back:
     internal: true
-  web_net:
 
 volumes:
   db:
