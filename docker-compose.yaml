@@ -1,27 +1,79 @@
+# =====================================================================
+#  SentiNet — stack complete derriere un reverse proxy
+#
+#  Un seul port est publie sur l'hote : celui du proxy.
+#  Tous les services sont ensuite joints par leur nom de domaine
+#  (VIRTUAL_HOST), ce qui supprime tout risque de conflit de ports.
+# =====================================================================
+
 services:
+
+  # -------------------------------------------------------------------
+  # PROXY — point d'entree unique de la stack.
+  # Pas de "build:" : c'est un outil tout fait, on ne le construit pas.
+  # -------------------------------------------------------------------
+  proxy:
+    image: nginxproxy/nginx-proxy:1.6
+    restart: unless-stopped
+    ports:
+      # SEUL port publie de toute la stack. Variable dediee : ne pas
+      # reutiliser HTTP_PORT, qui sert deja ailleurs.
+      - "${PROXY_PORT:-8091}:80"
+    volumes:
+      # Lecture seule du socket Docker : c'est ainsi que le proxy
+      # decouvre les conteneurs et genere sa config nginx tout seul.
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    # Le proxy est sur les 3 reseaux "front" : il doit pouvoir joindre
+    # chaque application, sans pour autant les relier entre elles.
+    networks: [matomo-front, wp-front, web-net]
+
+  # -------------------------------------------------------------------
+  # BASE DE DONNEES DE MATOMO
+  # Aucun port publie, aucun acces internet : elle n'existe que pour app.
+  # -------------------------------------------------------------------
   db:
+    build: { context: ., target: db }
     image: sysadminmichael/sentinet:db-12.3.3
     restart: unless-stopped
     volumes:
-      - db:/var/lib/mysql:Z
+      - db:/var/lib/mysql
     environment:
       - MARIADB_PASSWORD=${DB_PASSWORD}
       - MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+    # Un seul reseau, marque "internal" : enfermee.
+    networks: [matomo-back]
 
+  # -------------------------------------------------------------------
+  # MATOMO — analytics
+  # -------------------------------------------------------------------
   app:
+    build: { context: ., target: app }
     image: sysadminmichael/sentinet:matomo-5-apache
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - matomo:/var/www/html:z
+      - matomo:/var/www/html
     environment:
       - MATOMO_DATABASE_PASSWORD=${DB_PASSWORD}
-    ports:
-      - "${MATOMO_PORT:-8081}:80"
+      # Nom de domaine que le proxy routera vers ce conteneur.
+      - VIRTUAL_HOST=matomo.local
+      # Port INTERNE du conteneur, jamais un port de l'hote.
+      - VIRTUAL_PORT=80
+    expose:
+      # "expose" ouvre vers les autres conteneurs uniquement.
+      # Contrairement a "ports", ne reserve rien sur ta machine.
+      - "80"
+    # Deux reseaux : -back pour parler a sa base, -front pour le proxy.
+    networks: [matomo-back, matomo-front]
 
+  # -------------------------------------------------------------------
+  # BASE DE DONNEES DE WORDPRESS
+  # Reseau distinct de celui de Matomo : c'est la l'isolation.
+  # -------------------------------------------------------------------
   wp-db:
+    build: { context: ., target: wp-db }
     image: sysadminmichael/sentinet:db-12.3.3
     restart: unless-stopped
     volumes:
@@ -29,9 +81,14 @@ services:
     environment:
       - MARIADB_PASSWORD=${WP_DB_PASSWORD}
       - MARIADB_ROOT_PASSWORD=${WP_DB_ROOT_PASSWORD}
+    networks: [wp-back]
 
+  # -------------------------------------------------------------------
+  # WORDPRESS
+  # -------------------------------------------------------------------
   wordpress:
-    image: wordpress:6-apache #plus assez de place sur le docker hub pour push une image personnalisé
+    build: { context: ., target: wordpress }
+    image: wordpress:6-apache
     restart: unless-stopped
     depends_on:
       wp-db:
@@ -40,19 +97,82 @@ services:
       - wp-data:/var/www/html
     environment:
       - WORDPRESS_DB_PASSWORD=${WP_DB_PASSWORD}
-    ports:
-      - "${WP_PORT:-8082}:80"
+      - VIRTUAL_HOST=wp.local
+      - VIRTUAL_PORT=80
+    expose:
+      - "80"
+    networks: [wp-back, wp-front]
 
+  # -------------------------------------------------------------------
+  # SITE VITRINE NETSENTINEL (nginx statique, durci)
+  # -------------------------------------------------------------------
   web:
+    build: { context: ., target: web }
     image: sysadminmichael/sentinet:nginx-1.27-alpine-slim
-    container_name: netsentinel-site
     restart: unless-stopped
-    ports:
-      - "${HTTP_PORT:-8080}:80"
-    read_only: true
+    environment:
+      - VIRTUAL_HOST=sentinet.local
+      - VIRTUAL_PORT=80
+    expose:
+      - "80"
+    # --- durcissement ---
+    read_only: true          # systeme de fichiers en lecture seule
+    tmpfs:                   # sauf ces 3 dossiers, dont nginx a besoin
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true   # interdit l'escalade de privileges
+    cap_drop:
+      - ALL                      # on retire TOUS les droits noyau...
+    cap_add:                     # ...puis on rend les 4 indispensables
+      - CHOWN                    # nginx s'approprie son dossier de cache
+      - SETGID                   # passage des workers en user nginx
+      - SETUID                   #   idem
+      - NET_BIND_SERVICE         # ecoute sur le port 80 (<1024)
+    networks: [web-net]
 
+  # -------------------------------------------------------------------
+  # WHOAMI — service de test du proxy.
+  # Repond en affichant l'identite du conteneur. A supprimer une fois
+  # le reverse proxy valide.
+  # -------------------------------------------------------------------
+  whoami:
+    image: jwilder/whoami
+    restart: unless-stopped
+    environment:
+      - VIRTUAL_HOST=whoami.local
+      # ATTENTION : whoami ecoute sur 8000, pas 80.
+      - VIRTUAL_PORT=8000
+    expose:
+      - "8000"
+    networks: [web-net]
+
+# =====================================================================
+#  VOLUMES — donnees persistantes, survivent a un "docker compose down"
+#  (supprimees seulement avec l'option -v)
+# =====================================================================
 volumes:
   db:
   matomo:
   wp-db:
   wp-data:
+
+# =====================================================================
+#  RESEAUX
+#
+#  Regle : "internal: true" coupe tout acces exterieur.
+#  -> reserve aux bases de donnees, qui n'ont rien a faire sur internet.
+#  -> interdit sur un reseau ou un service publie un port.
+#
+#  Matomo et WordPress ne partagent AUCUN reseau : ils ne peuvent pas
+#  se voir. Seul le proxy les joint, chacun par son reseau "front".
+# =====================================================================
+networks:
+  matomo-back:
+    internal: true     # db <-> app, enferme
+  matomo-front:        # app <-> proxy, et sortie internet
+  wp-back:
+    internal: true     # wp-db <-> wordpress, enferme
+  wp-front:            # wordpress <-> proxy, et sortie internet
+  web-net:             # web + whoami <-> proxy
