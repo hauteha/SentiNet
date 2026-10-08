@@ -1,16 +1,3 @@
-# Secrets — ne jamais committer
 .env
-*.env
-!*.env.example
-
-# Registry prive local
-registry/auth/
-registry/.registry-password
-
-# Artefacts systeme / editeurs
-.DS_Store
-Thumbs.db
-desktop.ini
-.vscode/
-.idea/
-*.swp
+.git
+docker-compose*.yml
