@@ -1,8 +1,8 @@
 
-ARG MARIADB_IMAGE=mariadb:lts
-ARG MATOMO_IMAGE=matomo:5-apache
+ARG NGINX_IMAGE=sysadminmichael/sentinet:nginx-1.27-alpine-slim
+ARG MATOMO_IMAGE=sysadminmichael/sentinet:matomo-5-apache
+ARG MARIADB_IMAGE=sysadminmichael/sentinet:db-12.3.3
 ARG WORDPRESS_IMAGE=wordpress:6-apache
-
 
 FROM ${MARIADB_IMAGE} AS mariadb-base
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
