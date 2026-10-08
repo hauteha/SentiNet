@@ -1,7 +1,6 @@
 services:
   db:
-    build: { context: ., target: db }
-    image: ${DOCKERHUB_USER}/sentinet-matomo-db:${TAG:-1.0}
+    image: sysadminmichael/sentinet:db-12.3.3
     restart: unless-stopped
     volumes:
       - db:/var/lib/mysql:Z
@@ -10,8 +9,7 @@ services:
       - MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
 
   app:
-    build: { context: ., target: app }
-    image: ${DOCKERHUB_USER}/sentinet-matomo:${TAG:-1.0}
+    image: sysadminmichael/sentinet:matomo-5-apache
     restart: unless-stopped
     depends_on:
       db:
@@ -24,8 +22,7 @@ services:
       - "${MATOMO_PORT:-8081}:80"
 
   wp-db:
-    build: { context: ., target: wp-db }
-    image: ${DOCKERHUB_USER}/sentinet-wp-db:${TAG:-1.0}
+    image: sysadminmichael/sentinet:db-12.3.3
     restart: unless-stopped
     volumes:
       - wp-db:/var/lib/mysql
@@ -34,8 +31,7 @@ services:
       - MARIADB_ROOT_PASSWORD=${WP_DB_ROOT_PASSWORD}
 
   wordpress:
-    build: { context: ., target: wordpress }
-    image: ${DOCKERHUB_USER}/sentinet-wordpress:${TAG:-1.0}
+    image: wordpress:6-apache #plus assez de place sur le docker hub pour push une image personnalisé
     restart: unless-stopped
     depends_on:
       wp-db:
@@ -48,26 +44,12 @@ services:
       - "${WP_PORT:-8082}:80"
 
   web:
-    build: { context: ., target: web }
-    image: ${DOCKERHUB_USER}/sentinet-web:${TAG:-1.0}
+    image: sysadminmichael/sentinet:nginx-1.27-alpine-slim
     container_name: netsentinel-site
     restart: unless-stopped
     ports:
       - "${HTTP_PORT:-8080}:80"
     read_only: true
-    tmpfs:
-      - /var/cache/nginx
-      - /var/run
-      - /tmp
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETGID
-      - SETUID
-      - NET_BIND_SERVICE
 
 volumes:
   db:
