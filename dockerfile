@@ -2,7 +2,6 @@
 ARG MARIADB_IMAGE=mariadb:lts
 ARG MATOMO_IMAGE=matomo:5-apache
 ARG WORDPRESS_IMAGE=wordpress:6-apache
-ARG NGINX_IMAGE=nginx:1.27-alpine
 
 
 FROM ${MARIADB_IMAGE} AS mariadb-base
