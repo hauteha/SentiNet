@@ -39,7 +39,6 @@ ENV WORDPRESS_DB_HOST=wp-db \
     WORDPRESS_DB_USER=wordpress
 
 
-# ============================================================
 FROM ${NGINX_IMAGE} AS web
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
