@@ -30,13 +30,13 @@ services:
       - web
       
   sentinet:
-    image: sysadminmichael/sentinet:nginx-1.27-alpine-slim
+    build: { context: ., target: sentinet }
+    image: netsentinel/sentinet:local
     restart: unless-stopped
     volumes:
       - ./site:/usr/share/nginx/html:ro
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
-      - default
       - web
     labels:
       - "traefik.enable=true"
@@ -48,8 +48,8 @@ services:
       - "traefik.http.services.sentinet.loadbalancer.server.port=80"
 
   db:
-    image: sysadminmichael/sentinet:db-12.3.3
-    restart: unless-stopped
+    build: { context: ., target: db }
+    image: netsentinel/db:local
     environment:
       MARIADB_DATABASE: matomo
       MARIADB_USER: matomo
@@ -57,6 +57,8 @@ services:
       MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
     volumes:
       - db:/var/lib/mysql
+    networks:
+      - back-matomo
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
@@ -64,8 +66,8 @@ services:
       retries: 10
 
   matomo:
-    image: sysadminmichael/sentinet:matomo-5-apache
-    restart: unless-stopped
+    build: { context: ., target: app }
+    image: netsentinel/matomo:local
     depends_on:
       db:
         condition: service_healthy
@@ -78,7 +80,7 @@ services:
     volumes:
       - matomo:/var/www/html
     networks:
-      - default
+      - back-matomo
       - web
     labels:
       - "traefik.enable=true"
@@ -90,8 +92,8 @@ services:
       - "traefik.http.services.matomo.loadbalancer.server.port=80"
 
   wp-db:
-    image: sysadminmichael/sentinet:db-12.3.3
-    restart: unless-stopped
+    build: { context: ., target: wp-db }
+    image: netsentinel/wp-db:local
     environment:
       MARIADB_DATABASE: wordpress
       MARIADB_USER: wordpress
@@ -99,6 +101,8 @@ services:
       MARIADB_ROOT_PASSWORD: ${WP_DB_ROOT_PASSWORD}
     volumes:
       - wp-db:/var/lib/mysql
+    networks:
+      - back-wp
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
@@ -106,8 +110,8 @@ services:
       retries: 10
 
   wordpress:
-    image: wordpress:6-apache
-    restart: unless-stopped
+    build: { context: ., target: wordpress }
+    image: netsentinel/wordpress:local
     depends_on:
       wp-db:
         condition: service_healthy
@@ -119,7 +123,7 @@ services:
     volumes:
       - wp-data:/var/www/html
     networks:
-      - default
+      - back-wp
       - web
     labels:
       - "traefik.enable=true"
@@ -140,5 +144,7 @@ volumes:
 networks:
   web:
     external: true
-  default:
-    driver: bridge
+  back-matomo:
+    internal: true
+  back-wp:
+    internal: true
