@@ -27,7 +27,7 @@ services:
     security_opt:
       - no-new-privileges:true
     networks:
-      - web
+      - front
       
   sentinet:
     build: { context: ., target: sentinet }
@@ -40,7 +40,7 @@ services:
       - web
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=web"
+      - "traefik.docker.network=front"
       - "traefik.http.routers.sentinet.rule=Host(`sentinet.sophiaplustech.com`)"
       - "traefik.http.routers.sentinet.entrypoints=websecure"
       - "traefik.http.routers.sentinet.tls=true"
@@ -81,10 +81,10 @@ services:
       - matomo:/var/www/html
     networks:
       - back-matomo
-      - web
+      - front
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=web"
+      - "traefik.docker.network=front"
       - "traefik.http.routers.matomo.rule=Host(`matomo-sentinet.sophiaplustech.com`)"
       - "traefik.http.routers.matomo.entrypoints=websecure"
       - "traefik.http.routers.matomo.tls=true"
@@ -124,10 +124,10 @@ services:
       - wp-data:/var/www/html
     networks:
       - back-wp
-      - web
+      - front
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=web"
+      - "traefik.docker.network=front"
       - "traefik.http.routers.wordpress.rule=Host(`wp-sentinet.sophiaplustech.com`)"
       - "traefik.http.routers.wordpress.entrypoints=websecure"
       - "traefik.http.routers.wordpress.tls=true"
@@ -142,7 +142,7 @@ volumes:
   letsencrypt:
 
 networks:
-  web:
+  front:
     external: true
   back-matomo:
     internal: true
